@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>Vitamin D Simulator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 15px; background: #f4f4f9; }
+        .card { background: white; padding: 15px; border-radius: 8px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .quick-functions { display: flex; gap: 12px; flex-wrap: wrap; }
+        .quick-card { flex: 1; min-width: 260px; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .global-params { display: flex; flex-wrap: wrap; gap: 15px; align-items: end; margin-bottom: 15px; }
+        .global-params > div { flex: 1; min-width: 150px; max-width: 220px; }
+        .manual-inputs { display: flex; flex-wrap: wrap; gap: 15px; align-items: end; }
+        .manual-inputs > div { flex: 1; min-width: 140px; }
+        label { display: block; margin: 8px 0 4px; font-weight: bold; }
+        input { padding: 4px 6px; width: 100%; max-width: 140px; font-size: 13px; box-sizing: border-box; }
+        button { padding: 5px 10px; margin: 4px 4px 4px 0; border-radius: 4px; width: auto; font-size: 13px; }
+        .quick-card input, .global-params input, .manual-inputs input { max-width: 140px; }
+        .quick-card button { width: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; height: 38px; vertical-align: middle; }
+        th { background: #0066cc; color: white; }
+        #modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 1000; }
+        #modal-content { background: white; margin: 3% auto; padding: 30px; width: 90%; max-width: 1000px; border-radius: 10px; max-height: 92vh; overflow-y: auto; line-height: 1.6; }
+        @media print {
+            .no-print { display: none !important; }
+            .card { box-shadow: none; margin: 5px; padding: 10px; }
+            button { display: none !important; }
+            canvas { max-height: 350px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Vitamin D Simulator</h1>
+
+    <div class="card">
+        <h2>Schnell-Funktionen</h2>
+        <div class="global-params">
+            <div>
+                <label>Startdatum:</label>
+                <input type="text" id="startDate" value="15.06.2026" onchange="updateAllDates()">
+            </div>
+            <div>
+                <label>Startwert (ng/ml):</label>
+                <input type="number" id="startLevel" value="20" onchange="updateFirstWeek()">
+            </div>
+            <div>
+                <label>Gewicht (kg), global:</label>
+                <input type="number" id="weight" value="74" onchange="refresh()">
+            </div>
+        </div>
+        <div class="quick-functions">
+            <div class="quick-card">
+                <h3>1. Aufsättigungsphase</h3>
+                <label>Tagesdosis (IE):</label><input type="number" id="loadingDose" value="20000"><br>
+                <label>Wochen:</label><input type="number" id="loadingWeeks" value="6"><br>
+                <button onclick="runLoadingPhase()">▶ Aufsättigung starten</button>
+            </div>
+            <div class="quick-card">
+                <h3>2. Erhaltungsphase</h3>
+                <label>Tagesdosis (IE):</label><input type="number" id="maintenanceDose" value="4000"><br>
+                <label>Sonnenbäder/Woche:</label><input type="number" id="sunSummer" value="0.3" step="0.1"><br>
+                <label>Wochen:</label><input type="number" id="maintenanceWeeks" value="12"><br>
+                <button onclick="runMaintenancePhase()">▶ Erhaltung starten</button>
+            </div>
+            <div class="quick-card">
+                <h3>3. Eingependelter Spiegel</h3>
+                <label>Tagesdosis (IE):</label><input type="number" id="steadyDose" value="5000"><br>
+                <label>Sonnenbäder/Woche:</label><input type="number" id="steadySun" value="0.3" step="0.1"><br>
+                <button onclick="calculateSteadyState()">Berechnen</button>
+                <p id="steadyResult" style="font-weight:bold; margin-top:10px; color:#0066cc;"></p>
+            </div>
+        </div>
+        <button onclick="runFullPhase()" style="background:#28a745; margin-top:10px;">▶ Aufsättigung + Erhaltung nacheinander</button>
+    </div>
+
+    <div class="card">
+        <h2>Manuelle Eingabe & Verlauf</h2>
+        <div class="manual-inputs">
+            <div>
+                <label>Tagesdosis (IE):</label>
+                <input type="number" id="dailyDose" value="10000">
+            </div>
+        </div>
+        <button onclick="addWeek()">➕ Einzelne Woche hinzufügen</button>
+        <button onclick="clearTable()" style="background:#dc3545;">🗑 Gesamte Tabelle löschen</button>
+        <button onclick="printReport()" style="background:#28a745;">🖨 Drucken (nur Parameter + Graph)</button>
+        <button onclick="showDocumentation()" style="background:#6c757d;">📖 Dokumentation</button>
+    </div>
+
+    <div class="card no-print">
+        <h2>Verlauf</h2>
+        <table id="dataTable">
+            <thead>
+                <tr>
+                    <th>Woche</th><th>Datum</th><th>Tagesdosis</th><th>Sonnenbäder</th><th>Gewicht</th><th>Spiegel (ng/ml)</th><th>Aktion</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Graph (mit Startwert)</h2>
+        <canvas id="myChart" height="220"></canvas>
+    </div>
+</div>
+
+<div id="modal">
+    <div id="modal-content">
+        <button onclick="closeModal()" style="float:right; padding:8px 16px; background:#dc3545; color:white;">Schließen</button>
+        <div id="docContent"></div>
+    </div>
+</div>
+
+<script>
+function num(id, fallback) {
+    const v = parseFloat(document.getElementById(id).value);
+    return Number.isNaN(v) ? fallback : v;
+}
+
+function calculateNext(prev, daily, sun, weight) {
+    const m = (daily * 7) * 0.0001 * 70 / weight;
+    const p = sun * 2 * (-prev * prev * 0.0001 + 1);
+    const q = Math.max(p, 0);
+    return Math.max(0, (prev + m) * (prev * -0.0003 + 0.96) + q);
+}
+
+function parseDEDate(str) {
+    const parts = String(str).trim().split(/[.\-/]/).map(Number);
+    if (parts.length === 3 && parts[0] > 31) return new Date(parts[0], parts[1] - 1, parts[2]);
+    return new Date(parts[2], parts[1] - 1, parts[0]);
+}
+
+function formatDEDate(date) {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    return `${d}.${m}.${date.getFullYear()}`;
+}
+
+function weekEndDate(weekNumber) {
+    const d = parseDEDate(document.getElementById('startDate').value);
+    d.setDate(d.getDate() + (weekNumber * 7) - 1);
+    return formatDEDate(d);
+}
+
+function seasonalSun(dateStr) {
+    const month = parseDEDate(dateStr).getMonth();
+    if (month >= 3 && month <= 8) return num('sunSummer', 0.3);
+    return 0;
+}
+
+function currentWeight() {
+    const v = parseFloat(document.getElementById('weight').value);
+    return Number.isNaN(v) ? 74 : v;
+}
+
+let history = [];
+let chart;
+
+function initChart() {
+    chart = new Chart(document.getElementById('myChart'), {
+        type: 'line',
+        data: { labels: [], datasets: [{ label: 'Vitamin D (ng/ml)', data: [], borderColor: '#0066cc', tension: 0.3, pointRadius: 5 }] },
+        options: { scales: { y: { beginAtZero: true } }}
+    });
+}
+
+function refresh() {
+    const tbody = document.querySelector('#dataTable tbody');
+    tbody.innerHTML = '';
+    const startLevel = num('startLevel', 20);
+    const startDate = document.getElementById('startDate').value;
+    const weight = currentWeight();
+
+    const startRow = document.createElement('tr');
+    startRow.innerHTML = `
+        <td>Start</td>
+        <td>${startDate}</td>
+        <td>–</td>
+        <td>–</td>
+        <td>${weight}</td>
+        <td><strong>${startLevel.toFixed(1)}</strong></td>
+        <td></td>
+    `;
+    tbody.appendChild(startRow);
+
+    history.forEach((e, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${e.week}</td>
+            <td>${e.date}</td>
+            <td contenteditable="true" onblur="updateValue(${i},'daily',this)">${e.daily}</td>
+            <td contenteditable="true" onblur="updateValue(${i},'sun',this)">${e.sun}</td>
+            <td contenteditable="true" onblur="updateValue(${i},'weight',this)">${e.weight}</td>
+            <td><strong>${e.level.toFixed(1)}</strong></td>
+            <td><button onclick="removeWeek(${i})">🗑</button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    chart.data.labels = ['Start'].concat(history.map(e => `W${e.week}`));
+    chart.data.datasets[0].data = [startLevel].concat(history.map(e => e.level));
+    chart.update();
+}
+
+function addWeekWithDose(daily) {
+    const weight = currentWeight();
+    if (history.length === 0) {
+        const startLevel = num('startLevel', 20);
+        const endDate = weekEndDate(1);
+        const sun = seasonalSun(endDate);
+        history.push({ week: 1, date: endDate, daily, sun, weight, level: calculateNext(startLevel, daily, sun, weight) });
+        return;
+    }
+    const last = history[history.length - 1];
+    const week = last.week + 1;
+    const endDate = weekEndDate(week);
+    const sun = seasonalSun(endDate);
+    history.push({ week, date: endDate, daily, sun, weight, level: calculateNext(last.level, daily, sun, weight) });
+}
+
+function runLoadingPhase() {
+    history = [];
+    const dose = num('loadingDose', 20000);
+    const weeks = num('loadingWeeks', 6);
+    for (let i = 0; i < weeks; i++) addWeekWithDose(dose);
+    refresh();
+}
+
+function runMaintenancePhase() {
+    const dose = num('maintenanceDose', 4000);
+    const weeks = num('maintenanceWeeks', 12);
+    for (let i = 0; i < weeks; i++) addWeekWithDose(dose);
+    refresh();
+}
+
+function runFullPhase() {
+    history = [];
+    const loadDose = num('loadingDose', 20000);
+    const loadWeeks = num('loadingWeeks', 6);
+    const maintDose = num('maintenanceDose', 4000);
+    const maintWeeks = num('maintenanceWeeks', 12);
+    for (let i = 0; i < loadWeeks; i++) addWeekWithDose(loadDose);
+    for (let i = 0; i < maintWeeks; i++) addWeekWithDose(maintDose);
+    refresh();
+}
+
+function calculateSteadyState() {
+    const daily = num('steadyDose', 5000);
+    const usedSun = num('steadySun', 0.3);
+    const weight = currentWeight();
+    let level = num('startLevel', 20);
+    for (let i = 0; i < 200; i++) level = calculateNext(level, daily, usedSun, weight);
+    document.getElementById('steadyResult').innerHTML =
+        `Bei <strong>${daily} IE/Tag</strong> und <strong>${usedSun}</strong> Sonnenbädern/Woche pendelt sich der Spiegel bei ca. <strong>${level.toFixed(1)} ng/ml</strong> ein.`;
+}
+
+function addWeek() {
+    addWeekWithDose(num('dailyDose', 0));
+    refresh();
+}
+
+function updateFirstWeek() {
+    if (history.length === 0) { refresh(); return; }
+    const startLevel = num('startLevel', 20);
+    history[0].level = calculateNext(startLevel, history[0].daily, history[0].sun, history[0].weight);
+    recalculateFrom(0);
+    refresh();
+}
+
+function updateValue(i, field, el) {
+    const val = parseFloat(el.textContent.replace(',', '.'));
+    if (Number.isNaN(val)) return;
+    history[i][field] = val;
+    if (i === 0) updateFirstWeek();
+    else { recalculateFrom(i); refresh(); }
+}
+
+function recalculateFrom(start) {
+    for (let i = Math.max(start, 1); i < history.length; i++) {
+        history[i].level = calculateNext(history[i-1].level, history[i].daily, history[i].sun, history[i].weight);
+    }
+}
+
+function applySeasonalSunAndRecalc() {
+    history.forEach((entry, i) => {
+        entry.date = weekEndDate(i + 1);
+        entry.sun = seasonalSun(entry.date);
+    });
+    if (history.length > 0) {
+        const startLevel = num('startLevel', 20);
+        history[0].level = calculateNext(startLevel, history[0].daily, history[0].sun, history[0].weight);
+        recalculateFrom(0);
+    }
+    refresh();
+}
+
+function updateAllDates() { applySeasonalSunAndRecalc(); }
+
+function removeWeek(i) {
+    if (history.length <= 1) return alert("Die erste Woche kann nicht gelöscht werden.");
+    history.splice(i, 1);
+    for (let j = i; j < history.length; j++) history[j].week = j + 1;
+    applySeasonalSunAndRecalc();
+}
+
+function clearTable() {
+    if (confirm("Möchtest du die gesamte Tabelle wirklich löschen?")) {
+        history = [];
+        refresh();
+    }
+}
+
+function printReport() { window.print(); }
+
+function showDocumentation() {
+    document.getElementById('docContent').innerHTML = `
+        <h1>Vitamin D Simulator – Sehr detaillierte Dokumentation</h1>
+
+        <h2>1. Die vollständige mathematische Formel</h2>
+        <div class="formula">\\[ \\text{next} = (\\text{prev} + m) \\times (\\text{prev} \\times -0.0003 + 0.96) + q \\]</div>
+
+        <h2>2. Detaillierte Aufschlüsselung aller Terme</h2>
+        <div class="formula">
+            <strong>a) m – Supplement-Zuwachs pro Woche</strong><br>
+            \\[ m = \\frac{\\text{Tagesdosis} \\times 7 \\times 0.0001 \\times 70}{\\text{Gewicht (kg)}} \\]<br>
+            <small>Der Faktor 0.0001 beschreibt Bioverfügbarkeit und Umrechnung von IE in ng/ml. Der Bezug auf 70 kg ist ein Standardgewicht.</small><br><br>
+
+            <strong>b) q – Sonnenbäder-Effekt</strong><br>
+            \\[ p = \\text{Sonnenbäder pro Woche} \\times 2 \\times (1 - \\text{prev}^2 \\times 0.0001) \\]<br>
+            \\[ q = \\max(p, 0) \\]<br>
+            <small>Quadratische Dämpfung: Bei hohen Spiegeln (&gt; ~70–80 ng/ml) hat Sonne fast keinen Einfluss mehr.</small><br><br>
+
+            <strong>c) Decay-Faktor (natürlicher Abbau)</strong><br>
+            \\[ \\text{decay} = \\text{prev} \\times -0.0003 + 0.96 \\]<br>
+            <small>0.96 ≈ 4 % Abbau pro Woche. Der Term -0.0003 verstärkt den Abbau bei sehr hohen Werten.</small>
+        </div>
+
+        <h2>3. Vollständig eingesetzte Formel</h2>
+        <div class="formula">
+            \\[ \\text{next} = \\left( \\text{prev} + \\frac{\\text{daily} \\times 7 \\times 0.0001 \\times 70}{\\text{weight}} \\right) \\times (\\text{prev} \\times -0.0003 + 0.96) + \\max\\bigl( \\text{sun} \\times 2 \\times (1 - \\text{prev}^2 \\times 0.0001), 0 \\bigr) \\]
+        </div>
+
+        <h2>4. Berechnungsablauf</h2>
+        <ol>
+            <li>Alter Spiegel (prev) nehmen</li>
+            <li>Supplement-Zuwachs m addieren</li>
+            <li>Mit Decay-Faktor multiplizieren</li>
+            <li>Sonnen-Effekt q addieren</li>
+        </ol>
+        <p>Die erste Tabellenzeile ist der Startwert vor der Einnahme. Jede folgende Zeile zeigt das Datum am Ende der Woche und den Spiegel nach dieser Woche. Woche 1 endet inklusiv nach 7 Tagen (z. B. 15.06. → 21.06.).</p>
+
+        <h2>5. Sonnenbäder im Verlauf</h2>
+        <p>Das Feld „Sonnenbäder/Woche“ in der Erhaltungsphase gilt automatisch von <strong>April bis September</strong>. Von <strong>Oktober bis März</strong> wird 0 eingetragen. Der Monat kommt vom Datum am Ende der Woche. Einzelne Wochen können in der Tabelle überschrieben werden. 0 IE Tagesdosis ist überall erlaubt.</p>
+
+        <h2>6. Welche Zahl eintragen? Definition nach von Helden</h2>
+        <p><strong>1,0</strong> ist ein vollwertiges Sonnenbad an einem Tag. Pro Tag höchstens 1,0, also maximal <strong>7,0 pro Woche</strong>.</p>
+        <p>Ein volles Sonnenbad gilt nur bei:</p>
+        <ul>
+            <li>möglichst viel freier Haut, höchstens Badekleidung</li>
+            <li>keiner Sonnencreme</li>
+            <li>Mittagssonne etwa 9–16 Uhr bei blauem Himmel</li>
+            <li>Dauer nach Hauttyp, Bauch und Rücken getrennt:</li>
+        </ul>
+        <ul>
+            <li>Hauttyp 1: je 5 Minuten</li>
+            <li>Hauttyp 2: je 10 Minuten</li>
+            <li>Hauttyp 3: je 15 Minuten</li>
+            <li>Hauttyp 4: je 20 Minuten</li>
+            <li>Hauttyp 5: je 25 Minuten</li>
+            <li>Hauttyp 6: je 30 Minuten</li>
+        </ul>
+
+        <h2>7. Bekleidung und freie Hautfläche</h2>
+        <p>Von Helden veröffentlicht keine Liste wie „Bikini = 0,8“. Maßgeblich ist die Prozentzahl der unbedeckten, unecremten Haut (Strip-Animation auf VitaminDSpiegel.de):</p>
+        <ul>
+            <li>ca. 10 % – nur Gesicht und Schultern</li>
+            <li>ca. 20 % – wenig freie Haut / Spaziergang</li>
+            <li>ca. 30 % – nur Unterarme frei</li>
+            <li>ca. 50 % – halber Körper (Gesicht, Arme, Unterschenkel)</li>
+            <li>ca. 80–90 % – sehr kurze Kleidung</li>
+            <li>ca. 90 % – typische Badekleidung</li>
+            <li>100 % – weitgehend unbekleidet</li>
+        </ul>
+        <div class="formula">
+            \\[ \\text{Sonnenbäder/Woche} = \\frac{\\text{freie Haut (\%)}}{100} \\times \\text{Anzahl der Tage} \\]
+        </div>
+        <ul>
+            <li>7 Tage Badekleidung ≈ 7 × 0,9 = 6,3 (praktisch fast 7,0)</li>
+            <li>7 Tage halber Körper = 7 × 0,5 = 3,5</li>
+            <li>7 Tage nur Unterarme = 7 × 0,3 = 2,1</li>
+            <li>Alltagssonne ohne gezieltes Sonnenbad ≈ 0,2–0,3</li>
+        </ul>
+        <p>Sonnencreme zählt flächen- und zeitanteilig. Vollständig eingecremte Haut blockiert die Vitamin-D-Bildung.</p>
+
+        <h2>8. Schnell-Funktionen</h2>
+        <ul>
+            <li>Startdatum, Startwert und Gewicht gelten global für neue Wochen. Gewicht in der Tabelle bleibt je Woche änderbar.</li>
+            <li>Aufsättigung: hohe Dosis für mehrere Wochen</li>
+            <li>Erhaltung: niedrigere Dosis; Sonnenwert gilt Apr–Sep, sonst 0</li>
+            <li>Aufsättigung + Erhaltung nacheinander</li>
+            <li>Steady-State: Näherung über 200 Wochen mit konstanter Dosis und konstanter Sonne</li>
+        </ul>
+
+        <p><strong>Quelle:</strong> Original-Algorithmus und Sonnendefinition von Dr. med. Raimund von Helden (vitamindservice.de/simulator, vitamindservice.de/SONNENBADEN, VitaminDSpiegel.de)</p>
+    `;
+    document.getElementById('modal').style.display = 'block';
+    MathJax.typesetClear();
+    MathJax.typesetPromise();
+}
+
+function closeModal() {
+    document.getElementById('modal').style.display = 'none';
+}
+
+document.getElementById('sunSummer').addEventListener('change', applySeasonalSunAndRecalc);
+initChart();
+refresh();
+</script>
+</body>
+</html>
